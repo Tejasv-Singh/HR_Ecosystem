@@ -1,0 +1,274 @@
+// HR Platform — core data model (Phase 1).
+//
+// Every tenant-owned table carries `tenantId`. Nothing in the application layer
+// is allowed to query these tables without scoping by it; see lib/permissions.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Tenancy & identity
+// ---------------------------------------------------------------------------
+
+/// An employing organization. The multi-tenant root.
+model Tenant {
+  id          String   @id @default(cuid())
+  name        String
+  countryCode String   @default("US") // for future localization
+  timezone    String   @default("UTC")
+  currency    String   @default("USD")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users              User[]
+  employees          Employee[]
+  departments        Department[]
+  documents          Document[]
+  documentCategories DocumentCategory[]
+  employmentTypes    EmploymentType[]
+  invites            Invite[]
+  auditLogs          AuditLog[]
+}
+
+enum Role {
+  SUPER_ADMIN // platform-level
+  HR_ADMIN
+  MANAGER
+  EMPLOYEE
+}
+
+enum UserStatus {
+  PENDING // invited, has not set a password yet
+  ACTIVE
+  DISABLED
+}
+
+/// A login account. Scoped to exactly one tenant.
+model User {
+  id           String     @id @default(cuid())
+  tenantId     String
+  email        String     @unique
+  passwordHash String? // null while an invite is pending, or when using SSO
+  role         Role       @default(EMPLOYEE)
+  status       UserStatus @default(PENDING)
+  lastLoginAt  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  tenant         Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employee       Employee?
+  passwordResets PasswordResetToken[]
+
+  @@index([tenantId])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+/// An invitation for a person to claim the login attached to their Employee record.
+model Invite {
+  id         String    @id @default(cuid())
+  tenantId   String
+  employeeId String
+  email      String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  acceptedAt DateTime?
+  revokedAt  DateTime?
+  invitedBy  String
+  createdAt  DateTime  @default(now())
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([employeeId])
+}
+
+// ---------------------------------------------------------------------------
+// People
+// ---------------------------------------------------------------------------
+
+enum EmployeeStatus {
+  ACTIVE
+  ONBOARDING
+  ON_LEAVE
+  OFFBOARDING
+  TERMINATED
+}
+
+model Employee {
+  id               String         @id @default(cuid())
+  tenantId         String
+  userId           String?        @unique // link to login (may be a pending invite)
+  employeeNumber   String?
+  firstName        String
+  lastName         String
+  preferredName    String?
+  workEmail        String
+  personalEmail    String?
+  phone            String?
+  jobTitle         String?
+  departmentId     String?
+  managerId        String? // self-relation -> org chart
+  employmentTypeId String?
+  status           EmployeeStatus @default(ACTIVE)
+  startDate        DateTime?
+  endDate          DateTime?
+  location         String?
+  dateOfBirth      DateTime?
+  address          String?
+  bio              String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user              User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+  department        Department?        @relation("DepartmentMembers", fields: [departmentId], references: [id], onDelete: SetNull)
+  employmentType    EmploymentType?    @relation(fields: [employmentTypeId], references: [id], onDelete: SetNull)
+  manager           Employee?          @relation("ReportingLine", fields: [managerId], references: [id], onDelete: SetNull)
+  reports           Employee[]         @relation("ReportingLine")
+  leadsDepartments  Department[]       @relation("DepartmentLead")
+  documents         Document[]
+  emergencyContacts EmergencyContact[]
+  invites           Invite[]
+
+  @@unique([tenantId, workEmail])
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([departmentId])
+  @@index([managerId])
+}
+
+model EmergencyContact {
+  id           String   @id @default(cuid())
+  tenantId     String
+  employeeId   String
+  name         String
+  relationship String?
+  phone        String?
+  email        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([employeeId])
+}
+
+model Department {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  parentId  String? // nested departments
+  leadId    String? // an Employee
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant   Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  parent   Department?  @relation("DepartmentTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children Department[] @relation("DepartmentTree")
+  lead     Employee?    @relation("DepartmentLead", fields: [leadId], references: [id], onDelete: SetNull)
+  members  Employee[]   @relation("DepartmentMembers")
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@index([parentId])
+}
+
+// ---------------------------------------------------------------------------
+// Configuration (config over hardcode)
+// ---------------------------------------------------------------------------
+
+model EmploymentType {
+  id       String  @id @default(cuid())
+  tenantId String
+  name     String // Full-time, Part-time, Contractor, Intern...
+  isActive Boolean @default(true)
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employees Employee[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+model DocumentCategory {
+  id             String  @id @default(cuid())
+  tenantId       String
+  name           String // Contract, ID, Certification...
+  requiresExpiry Boolean @default(false)
+  isActive       Boolean @default(true)
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  documents Document[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+// ---------------------------------------------------------------------------
+// Documents
+// ---------------------------------------------------------------------------
+
+model Document {
+  id         String    @id @default(cuid())
+  tenantId   String
+  employeeId String
+  categoryId String
+  fileKey    String // storage reference
+  fileName   String
+  mimeType   String    @default("application/octet-stream")
+  sizeBytes  Int       @default(0)
+  expiresAt  DateTime? // drives the expiring-documents list
+  uploadedBy String
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  tenant   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employee Employee         @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  category DocumentCategory @relation(fields: [categoryId], references: [id])
+
+  @@index([tenantId])
+  @@index([employeeId])
+  @@index([tenantId, expiresAt])
+}
+
+// ---------------------------------------------------------------------------
+// Audit
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  tenantId   String
+  actorId    String // User id of whoever performed the action
+  actorEmail String?
+  action     String // CREATE / UPDATE / DELETE / LOGIN / ...
+  entityType String
+  entityId   String
+  summary    String?
+  changes    Json?
+  createdAt  DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, entityType, entityId])
+}
