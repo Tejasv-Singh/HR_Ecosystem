@@ -1,0 +1,10 @@
+import { json, route } from "@/lib/api";
+import { requireActor } from "@/lib/auth/session";
+import { revokeInvite } from "@/lib/modules/accounts/service";
+
+export const DELETE = route(async (_request: Request, { params }: { params: Promise<{ id: string }> }) => {
+  const actor = await requireActor();
+  const { id } = await params;
+  await revokeInvite(actor, id);
+  return json({ ok: true });
+});
