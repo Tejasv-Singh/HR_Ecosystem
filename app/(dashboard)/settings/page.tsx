@@ -34,9 +34,14 @@ export default async function SettingsPage() {
         title="Settings"
         description="Organisation profile, configuration lists, and who can sign in."
         action={
-          <ButtonLink variant="secondary" href="/settings/audit">
-            View audit log
-          </ButtonLink>
+          <span className="flex gap-2">
+            <ButtonLink variant="secondary" href="/settings/leave">
+              Leave settings
+            </ButtonLink>
+            <ButtonLink variant="secondary" href="/settings/audit">
+              View audit log
+            </ButtonLink>
+          </span>
         }
       />
 

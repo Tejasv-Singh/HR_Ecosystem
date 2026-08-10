@@ -69,6 +69,24 @@ const DOCUMENT_CATEGORIES = [
   { name: "Other", requiresExpiry: false },
 ];
 
+const LEAVE_TYPES = [
+  { name: "Annual leave", colour: "#2563eb", annualDays: 25, accrualMethod: "ANNUAL_GRANT" as const, requiresApproval: true },
+  { name: "Sick leave", colour: "#dc2626", annualDays: 10, accrualMethod: "ANNUAL_GRANT" as const, requiresApproval: false },
+  { name: "Unpaid leave", colour: "#64748b", annualDays: 0, accrualMethod: "NONE" as const, requiresApproval: true, isPaid: false, allowsNegative: true },
+  { name: "Parental leave", colour: "#7c3aed", annualDays: 0, accrualMethod: "NONE" as const, requiresApproval: true, allowsNegative: true },
+];
+
+/** A few fixed-date UK holidays, enough to exercise the day-count exclusions. */
+function holidaysFor(year: number) {
+  return [
+    { name: "New Year's Day", date: `${year}-01-01` },
+    { name: "Early May bank holiday", date: `${year}-05-04` },
+    { name: "Summer bank holiday", date: `${year}-08-31` },
+    { name: "Christmas Day", date: `${year}-12-25` },
+    { name: "Boxing Day", date: `${year}-12-26` },
+  ];
+}
+
 function email(person: SeedPerson): string {
   const last = person.lastName
     .toLowerCase()
@@ -101,8 +119,15 @@ async function main() {
       currency: "GBP",
       employmentTypes: { create: EMPLOYMENT_TYPES.map((name) => ({ name })) },
       documentCategories: { create: DOCUMENT_CATEGORIES },
+      leaveTypes: { create: LEAVE_TYPES },
+      holidays: {
+        create: holidaysFor(new Date().getUTCFullYear()).map((holiday) => ({
+          name: holiday.name,
+          date: new Date(`${holiday.date}T00:00:00.000Z`),
+        })),
+      },
     },
-    include: { employmentTypes: true, documentCategories: true },
+    include: { employmentTypes: true, documentCategories: true, leaveTypes: true },
   });
 
   const departments = new Map<string, string>();
