@@ -34,6 +34,10 @@ model Tenant {
   employmentTypes    EmploymentType[]
   invites            Invite[]
   auditLogs          AuditLog[]
+  leaveTypes         LeaveType[]
+  leaveRequests      LeaveRequest[]
+  leaveLedger        LeaveLedgerEntry[]
+  holidays           Holiday[]
 }
 
 enum Role {
@@ -147,6 +151,9 @@ model Employee {
   leadsDepartments  Department[]       @relation("DepartmentLead")
   documents         Document[]
   emergencyContacts EmergencyContact[]
+  leaveRequests     LeaveRequest[]     @relation("LeaveRequester")
+  leaveDecisions    LeaveRequest[]     @relation("LeaveDecider")
+  leaveLedger       LeaveLedgerEntry[]
   invites           Invite[]
 
   @@unique([tenantId, workEmail])
@@ -271,4 +278,133 @@ model AuditLog {
 
   @@index([tenantId, createdAt])
   @@index([tenantId, entityType, entityId])
+}
+
+// ---------------------------------------------------------------------------
+// Leave (Phase 2)
+//
+// Balances are never stored as a mutable number. Every grant, accrual, booking
+// and refund is a row in LeaveLedgerEntry, and a balance is the sum of that
+// employee's rows for a type and year. It costs one aggregate query and buys an
+// answer to "why is my balance 12.5?" that survives audit.
+// ---------------------------------------------------------------------------
+
+/// How an employee's yearly entitlement appears in the ledger.
+enum AccrualMethod {
+  NONE // no automatic entitlement; balances come from manual adjustments
+  ANNUAL_GRANT // the whole allowance lands on 1 January (pro-rated on join)
+  MONTHLY_ACCRUAL // 1/12 of the allowance per completed month
+}
+
+enum LeaveRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+/// Why a ledger row exists. Signed days: grants are positive, bookings negative.
+enum LeaveLedgerReason {
+  GRANT
+  ACCRUAL
+  CARRY_OVER
+  TAKEN
+  REFUND
+  ADJUSTMENT
+}
+
+/// A configurable kind of leave — annual, sick, unpaid... (spec §1: config over hardcode).
+model LeaveType {
+  id                String        @id @default(cuid())
+  tenantId          String
+  name              String
+  colour            String        @default("#64748b") // calendar/badge tint
+  isPaid            Boolean       @default(true)
+  requiresApproval  Boolean       @default(true)
+  allowsHalfDay     Boolean       @default(true)
+  /// Whether a booking may push the balance below zero.
+  allowsNegative    Boolean       @default(false)
+  accrualMethod     AccrualMethod @default(ANNUAL_GRANT)
+  annualDays        Decimal       @default(0) @db.Decimal(6, 2)
+  /// Unused days that may roll into next year. Null means "no carry-over".
+  carryOverMaxDays  Decimal?      @db.Decimal(6, 2)
+  isActive          Boolean       @default(true)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  tenant   Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  requests LeaveRequest[]
+  ledger   LeaveLedgerEntry[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+/// A non-working day for the whole tenant. Excluded from leave day counts.
+model Holiday {
+  id       String   @id @default(cuid())
+  tenantId String
+  name     String
+  date     DateTime @db.Date
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, date])
+  @@index([tenantId, date])
+}
+
+model LeaveRequest {
+  id          String             @id @default(cuid())
+  tenantId    String
+  employeeId  String
+  leaveTypeId String
+  startDate   DateTime           @db.Date
+  endDate     DateTime           @db.Date
+  /// Half-day markers. A one-day afternoon-only request sets both.
+  startHalf   Boolean            @default(false)
+  endHalf     Boolean            @default(false)
+  /// Working days requested, computed at submission and frozen thereafter.
+  days        Decimal            @db.Decimal(6, 2)
+  reason      String?
+  status      LeaveRequestStatus @default(PENDING)
+  decidedById String?
+  decidedAt   DateTime?
+  decisionNote String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  tenant    Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employee  Employee           @relation("LeaveRequester", fields: [employeeId], references: [id], onDelete: Cascade)
+  decidedBy Employee?          @relation("LeaveDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+  leaveType LeaveType          @relation(fields: [leaveTypeId], references: [id])
+  ledger    LeaveLedgerEntry[]
+
+  @@index([tenantId, status])
+  @@index([employeeId, startDate])
+  @@index([tenantId, startDate, endDate])
+}
+
+model LeaveLedgerEntry {
+  id          String            @id @default(cuid())
+  tenantId    String
+  employeeId  String
+  leaveTypeId String
+  /// Leave year this row belongs to. Balances are always per-year.
+  year        Int
+  /// Signed: positive adds entitlement, negative consumes it.
+  days        Decimal           @db.Decimal(6, 2)
+  reason      LeaveLedgerReason
+  requestId   String?
+  note        String?
+  createdById String? // User id, null for system-generated accrual
+  createdAt   DateTime          @default(now())
+
+  tenant    Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employee  Employee      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  leaveType LeaveType     @relation(fields: [leaveTypeId], references: [id])
+  request   LeaveRequest? @relation(fields: [requestId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([employeeId, leaveTypeId, year])
+  @@index([requestId])
 }
