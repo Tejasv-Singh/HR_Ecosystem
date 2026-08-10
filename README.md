@@ -16,6 +16,8 @@ Built with Next.js (App Router), PostgreSQL + Prisma, Auth.js, Tailwind, and Zod
 - **Accounts** — email/password sign-in, invite-based onboarding, password reset.
 - **Settings** — tenant details, user roles, pending invites, and editable
   employment types and document categories.
+- **Leave** — configurable leave types, booking with half days, manager approval
+  routing, public holidays, and balances derived from a transaction ledger.
 - **Audit log** — every create/update/delete on a sensitive record is written to
   an audit trail, browsable with filters.
 
@@ -36,8 +38,15 @@ Four roles: `SUPER_ADMIN`, `HR_ADMIN`, `MANAGER`, `EMPLOYEE`.
 and Zod schemas. Cross-module access goes through service functions, never by
 reaching into another module's tables.
 
-**Config over hardcode.** Employment types, document categories, and departments
-are rows, not enums baked into the code.
+**Config over hardcode.** Employment types, document categories, leave types and
+departments are rows, not enums baked into the code.
+
+**Leave balances are never a stored number.** Every grant, accrual, booking and
+refund is a row in `LeaveLedgerEntry`, and a balance is the sum of those rows for
+a type and year. Cancelling approved leave writes a compensating refund rather
+than deleting the booking, so the trail shows the days going out and coming back.
+Day counts are computed once at submission and frozen — adding a public holiday
+later never silently revalues leave someone has already taken.
 
 ## Getting started
 
@@ -94,7 +103,8 @@ app/
     people/       directory and profiles
     org/          departments and org chart
     documents/    document management
-    settings/     tenant, roles, config lists, audit log
+    leave/        balances, booking, approval inbox
+    settings/     tenant, roles, config lists, leave setup, audit log
   api/            route handlers
 lib/
   auth/           session and credentials config
@@ -108,5 +118,12 @@ tests/            unit and e2e
 
 ## Status
 
-Phase 1 is complete. Recruitment, leave and attendance, and performance reviews
-are specced in `HR-Platform-Spec.md` but not built yet.
+Phase 1 is complete. Phase 2 has started with leave management; time &
+attendance, recruitment/ATS and onboarding checklists are specced in
+`HR-Platform-Spec.md` but not built yet.
+
+Leave currently assumes a Mon–Fri working week and a calendar leave year.
+Accrual is derived on read rather than written by a scheduled job, so balances
+are correct without anything having to run overnight — but there is no
+carry-over rollover job yet, and `carryOverMaxDays` is stored and not yet acted
+on.
