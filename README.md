@@ -1,12 +1,43 @@
 # HR Ecosystem
 
-A multi-tenant HR platform built as a modular monolith. Phase 1 covers the core:
-an employee directory, org structure, document management, and tenant settings —
-all of it permission-aware and audited.
+A self-hosted HR system of record for small and mid-sized companies — the thing
+that replaces the spreadsheet of employees, the shared drive of scanned
+contracts, and the email thread where people ask for time off.
+
+It holds who works here, who they report to, what documents are on their file,
+and how much leave they have left. Every screen and every API response is
+filtered by what the signed-in person is allowed to see, and every change to a
+sensitive record is written to an audit trail.
 
 Built with Next.js (App Router), PostgreSQL + Prisma, Auth.js, Tailwind, and Zod.
 
-## What's in it
+## What it actually does
+
+**An HR administrator** signs up, which creates the organisation and their own
+account in one step. They add employees, set reporting lines and departments,
+upload contracts and right-to-work documents to each person's file, define the
+leave types the company offers, and invite people to log in. They can see
+everything in their organisation and nothing outside it.
+
+**An employee** gets an invite email, sets a password, and lands on a directory
+of colleagues — names, job titles, departments, work emails. That's all they see
+of other people. On their own record they get the full profile, their documents,
+and their leave balances, and they can correct their own phone number, address
+and emergency contacts without raising a ticket. They book time off and watch it
+go from pending to approved.
+
+**A manager** sees everything an employee sees, plus the full profiles of anyone
+beneath them in the reporting tree — direct reports and their reports, at any
+depth. Leave requests from that downline land in their approval inbox. They
+cannot see peers, cannot see their own manager's file, and cannot approve their
+own leave.
+
+Four roles in total: `SUPER_ADMIN`, `HR_ADMIN`, `MANAGER`, `EMPLOYEE`.
+
+The whole thing is multi-tenant, so one deployment can host many organisations
+with no data ever crossing between them.
+
+## Modules
 
 - **People** — employee directory with search and filters, full profiles,
   emergency contacts, and employment status tracking (active / on leave / terminated).
@@ -31,8 +62,6 @@ it isn't treated as a permission question at all.
 request access; it's a function of `(actor, target)`. Services load the relational
 context a decision needs (is this me? is this person in my downline?) and pass it
 in. That's what makes the policy layer exhaustively unit-testable.
-
-Four roles: `SUPER_ADMIN`, `HR_ADMIN`, `MANAGER`, `EMPLOYEE`.
 
 **One module per folder.** Each module under `lib/modules/` owns its service layer
 and Zod schemas. Cross-module access goes through service functions, never by
@@ -62,7 +91,18 @@ npm run db:seed           # demo tenant with sample employees
 npm run dev
 ```
 
-App runs at http://localhost:3000. Seed credentials are printed by `db:seed`.
+App runs at http://localhost:3000.
+
+The seed builds a demo company — 15 people across three departments, with real
+reporting lines — and prints its logins. All share the password
+`DemoPassword123!`. Signing in as each shows how differently the same app
+behaves per role:
+
+| Sign in as | To see |
+|---|---|
+| `priya.raman@northwind.test` | HR administrator — every profile, settings, the audit log |
+| `marcus.oyelaran@northwind.test` | Manager — his engineering downline, and their leave requests to approve |
+| `raj.deshmukh@northwind.test` | Employee — the directory, his own file, booking his own leave |
 
 `AUTH_SECRET` in `.env` needs a real value before deploying anywhere — generate
 one with `npx auth secret`.
@@ -84,10 +124,18 @@ one with `npx auth secret`.
 
 ## Testing
 
-Unit tests cover the permission matrix — the policy layer being dependency-free
-means every role/target combination can be asserted directly. Playwright covers
-a happy path (sign up, add an employee, upload a document) plus a suite that
-checks the permission rules actually hold end to end.
+Unit tests cover the permission matrix and the leave day arithmetic — both are
+dependency-free, so every role/target combination and every calendar edge (half
+days, weekends, holidays, mid-year joiners) can be asserted directly.
+
+Playwright covers the journeys end to end: signing up and onboarding an employee
+by invite, HR editing a record and the change reaching the audit log, the org
+chart reflecting reporting lines, and booking leave through to a manager
+approving it. A dedicated permissions suite checks that the rules hold against
+the real API, not just the UI — that an employee cannot read a colleague's
+private data, that self-service editing stays inside its allow-list, that one
+tenant's records are invisible to another's administrator, and that nobody can
+approve their own leave.
 
 ```bash
 npm test
