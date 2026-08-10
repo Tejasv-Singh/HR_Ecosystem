@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
-import { Building2, FileText, LogOut, Network, Settings, Users } from "lucide-react";
+import { Building2, CalendarDays, FileText, LogOut, Network, Settings, Users } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Avatar } from "@/components/ui";
 
@@ -19,6 +19,7 @@ const NAV: NavItem[] = [
   { href: "/org", label: "Org chart", icon: Network },
   { href: "/org/departments", label: "Departments", icon: Building2 },
   { href: "/documents", label: "Documents", icon: FileText },
+  { href: "/leave", label: "Leave", icon: CalendarDays },
   { href: "/settings", label: "Settings", icon: Settings, adminOnly: true },
 ];
 
