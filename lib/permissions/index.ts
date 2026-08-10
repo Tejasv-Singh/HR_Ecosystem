@@ -44,7 +44,10 @@ export type Permission =
   | "invite:manage"
   | "audit:read"
   | "document:manage_categories"
-  | "directory:read";
+  | "directory:read"
+  | "leave:request"
+  | "leave:manage"
+  | "leave:configure";
 
 const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   SUPER_ADMIN: [
@@ -56,6 +59,9 @@ const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "audit:read",
     "document:manage_categories",
     "directory:read",
+    "leave:request",
+    "leave:manage",
+    "leave:configure",
   ],
   HR_ADMIN: [
     "employee:create",
@@ -66,9 +72,12 @@ const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "audit:read",
     "document:manage_categories",
     "directory:read",
+    "leave:request",
+    "leave:manage",
+    "leave:configure",
   ],
-  MANAGER: ["directory:read"],
-  EMPLOYEE: ["directory:read"],
+  MANAGER: ["directory:read", "leave:request"],
+  EMPLOYEE: ["directory:read", "leave:request"],
 };
 
 /** How much of an employee record the actor may see. */
@@ -187,6 +196,102 @@ export function assertCanReadDocuments(actor: Actor, target: EmployeeTarget): vo
 export function assertCanManageDocuments(actor: Actor, target: EmployeeTarget): void {
   if (actor.tenantId !== target.tenantId) throw new ForbiddenError();
   if (!isAdmin(actor.role)) throw new ForbiddenError();
+}
+
+// --- leave -----------------------------------------------------------------
+
+/**
+ * A leave request's status, mirrored from the schema. Duplicated as a literal
+ * union rather than imported from the generated client so this module stays a
+ * pure policy with no generated-code coupling beyond `Role`.
+ */
+export type LeaveStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
+
+/** The request being acted on, relative to the actor. */
+export interface LeaveRequestTarget {
+  tenantId: string;
+  /** The employee the leave belongs to. */
+  employee: EmployeeTarget;
+  status: LeaveStatus;
+}
+
+/**
+ * Who may see someone's leave. Deliberately narrower than the directory: when
+ * someone is off is common knowledge, but *why* is not, so callers strip the
+ * reason for anyone who only has "directory" sight of the employee.
+ */
+export function canViewLeave(actor: Actor, target: EmployeeTarget): boolean {
+  return employeeViewLevel(actor, target) === "full";
+}
+
+export function assertCanViewLeave(actor: Actor, target: EmployeeTarget): void {
+  if (!canViewLeave(actor, target)) throw new ForbiddenError();
+}
+
+/**
+ * Booking leave is self-service. HR may also file on someone's behalf — people
+ * phone in sick — but a manager may not book leave *for* a report.
+ */
+export function canRequestLeaveFor(actor: Actor, target: EmployeeTarget): boolean {
+  if (actor.tenantId !== target.tenantId) return false;
+  if (target.isSelf) return true;
+  return isAdmin(actor.role);
+}
+
+export function assertCanRequestLeaveFor(actor: Actor, target: EmployeeTarget): void {
+  if (!canRequestLeaveFor(actor, target)) throw new ForbiddenError();
+}
+
+/**
+ * The request row and the employee it belongs to must *both* sit in the actor's
+ * tenant. Checking only the request would let a row whose employee had been
+ * re-parented elsewhere be decided by the wrong tenant's admin.
+ */
+function sameTenantThroughout(actor: Actor, target: LeaveRequestTarget): boolean {
+  return actor.tenantId === target.tenantId && actor.tenantId === target.employee.tenantId;
+}
+
+/**
+ * Approval routing. A manager decides for their downline, HR decides for
+ * anyone — and nobody, including HR, approves their own request. Self-approval
+ * is the one rule that has to hold regardless of role.
+ */
+export function canDecideLeave(actor: Actor, target: LeaveRequestTarget): boolean {
+  if (!sameTenantThroughout(actor, target)) return false;
+  if (target.status !== "PENDING") return false;
+  if (target.employee.isSelf) return false;
+  if (isAdmin(actor.role)) return true;
+  return actor.role === "MANAGER" && target.employee.isInDownline;
+}
+
+export function assertCanDecideLeave(actor: Actor, target: LeaveRequestTarget): void {
+  if (!canDecideLeave(actor, target)) throw new ForbiddenError();
+}
+
+/**
+ * Cancellation. The requester may withdraw their own request while it is still
+ * pending or approved (plans change); HR may cancel anyone's. A rejected or
+ * already-cancelled request is terminal.
+ */
+export function canCancelLeave(actor: Actor, target: LeaveRequestTarget): boolean {
+  if (!sameTenantThroughout(actor, target)) return false;
+  if (target.status === "REJECTED" || target.status === "CANCELLED") return false;
+  if (target.employee.isSelf) return true;
+  return isAdmin(actor.role);
+}
+
+export function assertCanCancelLeave(actor: Actor, target: LeaveRequestTarget): void {
+  if (!canCancelLeave(actor, target)) throw new ForbiddenError();
+}
+
+/**
+ * Direct ledger adjustments — the manual "add 3 days TOIL" lever. Strictly HR:
+ * a manager who could edit balances could approve unlimited leave for a report
+ * by topping their balance up first.
+ */
+export function assertCanAdjustBalance(actor: Actor, target: EmployeeTarget): void {
+  if (actor.tenantId !== target.tenantId) throw new ForbiddenError();
+  assertCan(actor, "leave:manage");
 }
 
 /**
