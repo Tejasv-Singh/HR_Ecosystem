@@ -38,6 +38,11 @@ model Tenant {
   leaveRequests      LeaveRequest[]
   leaveLedger        LeaveLedgerEntry[]
   holidays           Holiday[]
+  timeEntries        TimeEntry[]
+  timesheets         Timesheet[]
+
+  /// Contracted full-time week. Anything beyond this on an approved timesheet is overtime.
+  standardWeeklyHours Decimal @default(40) @db.Decimal(5, 2)
 }
 
 enum Role {
@@ -154,6 +159,9 @@ model Employee {
   leaveRequests     LeaveRequest[]     @relation("LeaveRequester")
   leaveDecisions    LeaveRequest[]     @relation("LeaveDecider")
   leaveLedger       LeaveLedgerEntry[]
+  timeEntries       TimeEntry[]
+  timesheets        Timesheet[]        @relation("TimesheetOwner")
+  timesheetDecisions Timesheet[]       @relation("TimesheetDecider")
   invites           Invite[]
 
   @@unique([tenantId, workEmail])
@@ -407,4 +415,78 @@ model LeaveLedgerEntry {
   @@index([tenantId])
   @@index([employeeId, leaveTypeId, year])
   @@index([requestId])
+}
+
+// ---------------------------------------------------------------------------
+// Time & attendance (Phase 2)
+//
+// Hours are recorded as individual entries and rolled up into a weekly
+// Timesheet that gets submitted and approved as one unit. Approving a week
+// freezes its total, so a later edit to an entry cannot quietly change hours
+// that payroll has already seen.
+// ---------------------------------------------------------------------------
+
+enum TimeEntrySource {
+  CLOCK // started and stopped with the in-app timer
+  MANUAL // typed in after the fact
+}
+
+enum TimesheetStatus {
+  OPEN // still being filled in
+  SUBMITTED // awaiting a decision
+  APPROVED
+  REJECTED // sent back for correction
+}
+
+/// One worked interval on one day.
+model TimeEntry {
+  id          String          @id @default(cuid())
+  tenantId    String
+  employeeId  String
+  /// The day the work is booked against, in tenant-local reckoning.
+  workDate    DateTime        @db.Date
+  startedAt   DateTime
+  /// Null while a clock-in is still running.
+  endedAt     DateTime?
+  /// Frozen on close so a timesheet total never depends on re-deriving it.
+  minutes     Int             @default(0)
+  note        String?
+  source      TimeEntrySource @default(MANUAL)
+  createdById String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([employeeId, workDate])
+  // Finding someone's running clock has to be cheap; it happens on every page load.
+  @@index([employeeId, endedAt])
+}
+
+/// A week of time entries, submitted and approved as one unit.
+model Timesheet {
+  id           String          @id @default(cuid())
+  tenantId     String
+  employeeId   String
+  /// Always a Monday. One row per employee per week.
+  weekStart    DateTime        @db.Date
+  status       TimesheetStatus @default(OPEN)
+  /// Minutes at the moment of approval. Null until then.
+  totalMinutes Int?
+  submittedAt  DateTime?
+  decidedById  String?
+  decidedAt    DateTime?
+  decisionNote String?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employee  Employee  @relation("TimesheetOwner", fields: [employeeId], references: [id], onDelete: Cascade)
+  decidedBy Employee? @relation("TimesheetDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+
+  @@unique([employeeId, weekStart])
+  @@index([tenantId, status])
+  @@index([tenantId, weekStart])
 }
