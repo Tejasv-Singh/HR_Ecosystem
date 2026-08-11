@@ -5,13 +5,18 @@
 import { describe, expect, it } from "vitest";
 import {
   accruedDays,
+  addDays,
   countLeaveDays,
   eachDate,
+  formatMinutes,
   isWeekend,
   leaveYearOf,
+  minutesToHours,
   rangesOverlap,
   round2,
   toDateOnly,
+  weekEndOf,
+  weekStartOf,
   workingDates,
 } from "@/lib/modules/leave/calendar";
 
@@ -162,5 +167,53 @@ describe("helpers", () => {
 
   it("formats a Date back to a date-only string", () => {
     expect(toDateOnly(new Date("2026-08-10T22:30:00.000Z"))).toBe("2026-08-10");
+  });
+});
+
+describe("weeks", () => {
+  // 2026-08-10 is a Monday, 2026-08-16 the Sunday closing that week.
+  it("anchors a week to its Monday", () => {
+    expect(weekStartOf("2026-08-10")).toBe("2026-08-10"); // Monday itself
+    expect(weekStartOf("2026-08-13")).toBe("2026-08-10"); // Thursday
+    expect(weekStartOf("2026-08-15")).toBe("2026-08-10"); // Saturday
+  });
+
+  it("keeps Sunday in the week that already began", () => {
+    // The classic off-by-one: Sunday must not start a new week.
+    expect(weekStartOf("2026-08-16")).toBe("2026-08-10");
+    expect(weekStartOf("2026-08-17")).toBe("2026-08-17"); // the next Monday
+  });
+
+  it("closes a week on the Sunday", () => {
+    expect(weekEndOf("2026-08-13")).toBe("2026-08-16");
+    expect(weekEndOf("2026-08-16")).toBe("2026-08-16");
+  });
+
+  it("spans a month boundary", () => {
+    expect(weekStartOf("2026-09-01")).toBe("2026-08-31");
+  });
+
+  it("shifts by whole days in both directions", () => {
+    expect(addDays("2026-08-10", 7)).toBe("2026-08-17");
+    expect(addDays("2026-08-10", -1)).toBe("2026-08-09");
+    expect(addDays("2026-12-31", 1)).toBe("2027-01-01");
+  });
+});
+
+describe("minutes", () => {
+  it("formats as hours and minutes", () => {
+    expect(formatMinutes(450)).toBe("7h 30m");
+    expect(formatMinutes(480)).toBe("8h");
+    expect(formatMinutes(45)).toBe("45m");
+    expect(formatMinutes(0)).toBe("0m");
+  });
+
+  it("keeps a negative balance readable", () => {
+    expect(formatMinutes(-90)).toBe("-1h 30m");
+  });
+
+  it("converts to hours for totals", () => {
+    expect(minutesToHours(450)).toBe(7.5);
+    expect(minutesToHours(100)).toBe(1.67);
   });
 });

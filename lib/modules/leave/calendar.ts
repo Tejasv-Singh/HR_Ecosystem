@@ -137,3 +137,47 @@ export function accruedDays(
 export function round2(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
+
+// --- weeks (used by timesheets) --------------------------------------------
+
+/**
+ * The Monday on or before a date. Weeks are the unit timesheets are submitted
+ * in, so every week has exactly one canonical start.
+ */
+export function weekStartOf(date: DateOnly): DateOnly {
+  const cursor = toUtcDate(date);
+  // getUTCDay: 0 = Sunday, so Sunday belongs to the week that began six days earlier.
+  const offset = (cursor.getUTCDay() + 6) % 7;
+  cursor.setUTCDate(cursor.getUTCDate() - offset);
+  return toDateOnly(cursor);
+}
+
+/** The Sunday closing the week that `date` falls in. */
+export function weekEndOf(date: DateOnly): DateOnly {
+  const cursor = toUtcDate(weekStartOf(date));
+  cursor.setUTCDate(cursor.getUTCDate() + 6);
+  return toDateOnly(cursor);
+}
+
+/** Shift a date by whole days. Negative moves backwards. */
+export function addDays(date: DateOnly, days: number): DateOnly {
+  const cursor = toUtcDate(date);
+  cursor.setUTCDate(cursor.getUTCDate() + days);
+  return toDateOnly(cursor);
+}
+
+/** Minutes as `7h 30m` — how hours are shown everywhere in the UI. */
+export function formatMinutes(minutes: number): string {
+  const sign = minutes < 0 ? "-" : "";
+  const absolute = Math.abs(Math.round(minutes));
+  const hours = Math.floor(absolute / 60);
+  const rest = absolute % 60;
+  if (hours === 0) return `${sign}${rest}m`;
+  if (rest === 0) return `${sign}${hours}h`;
+  return `${sign}${hours}h ${rest}m`;
+}
+
+/** Whole hours to two places, for totals and overtime sums. */
+export function minutesToHours(minutes: number): number {
+  return round2(minutes / 60);
+}
