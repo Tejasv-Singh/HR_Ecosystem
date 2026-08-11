@@ -49,7 +49,8 @@ export type Permission =
   | "leave:manage"
   | "leave:configure"
   | "time:track"
-  | "time:manage";
+  | "time:manage"
+  | "checklist:manage";
 
 const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   SUPER_ADMIN: [
@@ -66,6 +67,7 @@ const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "leave:configure",
     "time:track",
     "time:manage",
+    "checklist:manage",
   ],
   HR_ADMIN: [
     "employee:create",
@@ -81,6 +83,7 @@ const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "leave:configure",
     "time:track",
     "time:manage",
+    "checklist:manage",
   ],
   MANAGER: ["directory:read", "leave:request", "time:track"],
   EMPLOYEE: ["directory:read", "leave:request", "time:track"],
@@ -375,6 +378,58 @@ export function canDecideTimesheet(actor: Actor, target: TimesheetTarget): boole
 
 export function assertCanDecideTimesheet(actor: Actor, target: TimesheetTarget): void {
   if (!canDecideTimesheet(actor, target)) throw new ForbiddenError();
+}
+
+// --- checklists ------------------------------------------------------------
+
+export type TaskAssigneeRole = "HR" | "MANAGER" | "EMPLOYEE";
+
+/** A checklist task, relative to the actor. */
+export interface ChecklistTaskTarget {
+  tenantId: string;
+  /** The employee the checklist is *about* — the joiner or leaver. */
+  subject: EmployeeTarget;
+  assignee: TaskAssigneeRole;
+  /** True when the actor is the person the task was resolved onto. */
+  isAssignee: boolean;
+  completed: boolean;
+}
+
+/**
+ * A checklist is visible to whoever can see the employee's file, plus anyone
+ * holding a task on it — a manager needs to see the onboarding list for someone
+ * about to join their team.
+ */
+export function canViewChecklist(actor: Actor, target: EmployeeTarget): boolean {
+  return employeeViewLevel(actor, target) === "full";
+}
+
+export function assertCanViewChecklist(actor: Actor, target: EmployeeTarget): void {
+  if (!canViewChecklist(actor, target)) throw new ForbiddenError();
+}
+
+/**
+ * Ticking a task off. The person it landed on may do it, and HR may always do
+ * it — someone has to be able to close a task assigned to a manager who left.
+ * A completed task is not re-completable; reopening is a separate act.
+ */
+export function canCompleteTask(actor: Actor, target: ChecklistTaskTarget): boolean {
+  if (actor.tenantId !== target.tenantId || actor.tenantId !== target.subject.tenantId) return false;
+  if (target.completed) return false;
+  if (isAdmin(actor.role)) return true;
+  if (target.isAssignee) return true;
+  // An unresolved MANAGER task falls to whoever manages the subject.
+  return target.assignee === "MANAGER" && actor.role === "MANAGER" && target.subject.isInDownline;
+}
+
+export function assertCanCompleteTask(actor: Actor, target: ChecklistTaskTarget): void {
+  if (!canCompleteTask(actor, target)) throw new ForbiddenError();
+}
+
+/** Reopening a ticked task is an HR correction, not self-service. */
+export function assertCanReopenTask(actor: Actor, target: ChecklistTaskTarget): void {
+  if (actor.tenantId !== target.tenantId) throw new ForbiddenError();
+  assertCan(actor, "checklist:manage");
 }
 
 /**
