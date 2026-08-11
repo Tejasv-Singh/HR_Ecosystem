@@ -49,6 +49,13 @@ with no data ever crossing between them.
   employment types and document categories.
 - **Leave** — configurable leave types, booking with half days, manager approval
   routing, public holidays, and balances derived from a transaction ledger.
+- **Time & attendance** — clock in/out or typed entries, a weekly timesheet
+  submitted and approved as one unit, and overtime measured against the
+  contracted week. Expected hours already account for weekends, public holidays
+  and approved leave.
+- **Checklists** — reusable onboarding and offboarding templates whose steps are
+  owned by HR, the manager, or the joiner themselves, with due dates relative to
+  the start date or last day. Everyone gets a "my tasks" view of what's on them.
 - **Audit log** — every create/update/delete on a sensitive record is written to
   an audit trail, browsable with filters.
 

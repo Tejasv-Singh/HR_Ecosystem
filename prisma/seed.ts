@@ -87,6 +87,34 @@ function holidaysFor(year: number) {
   ];
 }
 
+const CHECKLIST_TEMPLATES = [
+  {
+    name: "Standard joiner",
+    kind: "ONBOARDING" as const,
+    items: [
+      { title: "Order laptop and peripherals", assignee: "HR" as const, dueOffset: -7 },
+      { title: "Create accounts and grant system access", assignee: "HR" as const, dueOffset: -2 },
+      { title: "Send welcome pack and first-day details", assignee: "HR" as const, dueOffset: -1 },
+      { title: "Prepare the team introduction", assignee: "MANAGER" as const, dueOffset: -1 },
+      { title: "Sign the employment contract", assignee: "EMPLOYEE" as const, dueOffset: 0 },
+      { title: "Complete right-to-work check", assignee: "HR" as const, dueOffset: 1 },
+      { title: "Set first-quarter objectives", assignee: "MANAGER" as const, dueOffset: 14 },
+      { title: "Thirty-day check-in", assignee: "MANAGER" as const, dueOffset: 30 },
+    ],
+  },
+  {
+    name: "Standard leaver",
+    kind: "OFFBOARDING" as const,
+    items: [
+      { title: "Confirm the last working day in writing", assignee: "HR" as const, dueOffset: -14 },
+      { title: "Plan handover of open work", assignee: "MANAGER" as const, dueOffset: -10 },
+      { title: "Return laptop and any equipment", assignee: "EMPLOYEE" as const, dueOffset: 0 },
+      { title: "Revoke system access", assignee: "HR" as const, dueOffset: 0 },
+      { title: "Process the final payroll run", assignee: "HR" as const, dueOffset: 3 },
+    ],
+  },
+];
+
 function email(person: SeedPerson): string {
   const last = person.lastName
     .toLowerCase()
@@ -120,6 +148,13 @@ async function main() {
       employmentTypes: { create: EMPLOYMENT_TYPES.map((name) => ({ name })) },
       documentCategories: { create: DOCUMENT_CATEGORIES },
       leaveTypes: { create: LEAVE_TYPES },
+      checklistTemplates: {
+        create: CHECKLIST_TEMPLATES.map((template) => ({
+          name: template.name,
+          kind: template.kind,
+          items: { create: template.items.map((item, position) => ({ ...item, position })) },
+        })),
+      },
       holidays: {
         create: holidaysFor(new Date().getUTCFullYear()).map((holiday) => ({
           name: holiday.name,
