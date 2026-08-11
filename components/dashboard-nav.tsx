@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
-import { Building2, CalendarDays, Clock, FileText, LogOut, Network, Settings, Users } from "lucide-react";
+import { Building2, CalendarDays, Clock, FileText, ListChecks, LogOut, Network, Settings, Users } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Avatar } from "@/components/ui";
 
@@ -21,6 +21,7 @@ const NAV: NavItem[] = [
   { href: "/documents", label: "Documents", icon: FileText },
   { href: "/leave", label: "Leave", icon: CalendarDays },
   { href: "/time", label: "Timesheet", icon: Clock },
+  { href: "/tasks", label: "My tasks", icon: ListChecks },
   { href: "/settings", label: "Settings", icon: Settings, adminOnly: true },
 ];
 

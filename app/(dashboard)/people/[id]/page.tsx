@@ -8,6 +8,8 @@ import { isAdmin } from "@/lib/permissions";
 import { EmergencyContacts } from "@/app/(dashboard)/people/[id]/emergency-contacts";
 import { EmployeeStatusControl } from "@/app/(dashboard)/people/[id]/status-control";
 import { DocumentsPanel } from "@/app/(dashboard)/people/[id]/documents-panel";
+import { ChecklistPanel } from "@/app/(dashboard)/people/[id]/checklist-panel";
+import { listAssignableTemplates, listChecklistsFor } from "@/lib/modules/checklists/service";
 import { InviteButton } from "@/app/(dashboard)/people/[id]/invite-button";
 import {
   Alert,
@@ -40,6 +42,9 @@ export default async function EmployeeProfilePage({ params }: { params: Promise<
   const full = level === "full" ? (employee as FullShape) : null;
   const documents = full ? await listEmployeeDocuments(actor, id) : [];
   const admin = isAdmin(actor.role);
+  const [checklists, templates] = full
+    ? await Promise.all([listChecklistsFor(actor, id), admin ? listAssignableTemplates(actor) : Promise.resolve([])])
+    : [[], []];
 
   return (
     <>
@@ -138,6 +143,9 @@ export default async function EmployeeProfilePage({ params }: { params: Promise<
           </Card>
 
           {full ? <DocumentsPanel employeeId={id} documents={documents} canManage={admin} /> : null}
+          {full ? (
+            <ChecklistPanel employeeId={id} checklists={checklists} templates={templates} canManage={admin} />
+          ) : null}
         </div>
 
         <div className="space-y-4">

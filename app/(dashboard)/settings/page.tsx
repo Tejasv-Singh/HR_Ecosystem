@@ -38,6 +38,9 @@ export default async function SettingsPage() {
             <ButtonLink variant="secondary" href="/settings/leave">
               Leave settings
             </ButtonLink>
+            <ButtonLink variant="secondary" href="/settings/checklists">
+              Checklists
+            </ButtonLink>
             <ButtonLink variant="secondary" href="/settings/audit">
               View audit log
             </ButtonLink>
