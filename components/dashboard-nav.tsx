@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
-import { Building2, CalendarDays, Clock, FileText, ListChecks, LogOut, Network, Settings, Users } from "lucide-react";
+import { Briefcase, Building2, CalendarDays, Clock, FileText, ListChecks, LogOut, Network, Settings, Users } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Avatar } from "@/components/ui";
 
@@ -12,6 +12,8 @@ interface NavItem {
   label: string;
   icon: React.ComponentType<{ size?: number; className?: string }>;
   adminOnly?: boolean;
+  /** Visible to admins and to managers, who may be hiring managers. */
+  recruiterOnly?: boolean;
 }
 
 const NAV: NavItem[] = [
@@ -22,6 +24,7 @@ const NAV: NavItem[] = [
   { href: "/leave", label: "Leave", icon: CalendarDays },
   { href: "/time", label: "Timesheet", icon: Clock },
   { href: "/tasks", label: "My tasks", icon: ListChecks },
+  { href: "/recruiting", label: "Recruitment", icon: Briefcase, recruiterOnly: true },
   { href: "/settings", label: "Settings", icon: Settings, adminOnly: true },
 ];
 
@@ -60,7 +63,7 @@ export function DashboardNav({
       </div>
 
       <nav className="flex-1 space-y-0.5 p-3">
-        {NAV.filter((item) => !item.adminOnly || isAdmin).map((item) => {
+        {NAV.filter((item) => (!item.adminOnly || isAdmin) && (!item.recruiterOnly || isAdmin || role === "MANAGER")).map((item) => {
           // `/org` must not light up while on `/org/departments`.
           const active = pathname === item.href || (item.href !== "/org" && pathname.startsWith(`${item.href}/`));
           const Icon = item.icon;
