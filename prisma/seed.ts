@@ -269,6 +269,50 @@ async function main() {
     });
   }
 
+  // A couple of live reqs so the recruitment board is not empty on first run.
+  const engineering = departments.get("Engineering")!;
+  const fullTime = employmentTypes.get("Full-time")!;
+
+  const backend = await prisma.jobPosting.create({
+    data: {
+      tenantId: tenant.id,
+      title: "Backend Engineer",
+      departmentId: engineering,
+      employmentTypeId: fullTime,
+      hiringManagerId: employeeIds.get("hannah")!,
+      location: "Manchester",
+      openings: 2,
+      status: "OPEN",
+      description: "Node and Postgres, working on the platform team.",
+    },
+  });
+
+  await prisma.jobPosting.create({
+    data: {
+      tenantId: tenant.id,
+      title: "Account Executive",
+      departmentId: departments.get("Commercial")!,
+      employmentTypeId: fullTime,
+      hiringManagerId: employeeIds.get("elena")!,
+      location: "London",
+      status: "OPEN",
+    },
+  });
+
+  const applicants = [
+    { firstName: "Priyanka", lastName: "Nair", email: "priyanka.nair@example.test", source: "Referral", stage: "INTERVIEW" as const },
+    { firstName: "Tomas", lastName: "Roldan", email: "tomas.roldan@example.test", source: "LinkedIn", stage: "SCREENING" as const },
+    { firstName: "Wei", lastName: "Chen", email: "wei.chen@example.test", source: "Job board", stage: "APPLIED" as const },
+  ];
+
+  for (const applicant of applicants) {
+    const { stage, ...person } = applicant;
+    const candidate = await prisma.candidate.create({ data: { ...person, tenantId: tenant.id } });
+    await prisma.application.create({
+      data: { tenantId: tenant.id, candidateId: candidate.id, postingId: backend.id, stage },
+    });
+  }
+
   await prisma.auditLog.create({
     data: {
       tenantId: tenant.id,

@@ -56,6 +56,9 @@ with no data ever crossing between them.
 - **Checklists** — reusable onboarding and offboarding templates whose steps are
   owned by HR, the manager, or the joiner themselves, with due dates relative to
   the start date or last day. Everyone gets a "my tasks" view of what's on them.
+- **Recruitment** — job postings, a candidate pipeline from applied through to
+  hired, interview scheduling with outcomes, and a hire that creates the employee
+  record and can start their onboarding checklist in the same action.
 - **Audit log** — every create/update/delete on a sensitive record is written to
   an audit trail, browsable with filters.
 
@@ -76,6 +79,12 @@ reaching into another module's tables.
 
 **Config over hardcode.** Employment types, document categories, leave types and
 departments are rows, not enums baked into the code.
+
+**A candidate is not an employee.** `Candidate` and `Employee` are separate
+tables with separate lifecycles — a candidate has no login, no manager and no
+leave. The only bridge between them is hiring an application, which creates the
+employee record and stores the link. Nothing else in the app needs to know that
+an employee was once a candidate.
 
 **Leave balances are never a stored number.** Every grant, accrual, booking and
 refund is a row in `LeaveLedgerEntry`, and a balance is the sum of those rows for
@@ -159,7 +168,10 @@ app/
     org/          departments and org chart
     documents/    document management
     leave/        balances, booking, approval inbox
-    settings/     tenant, roles, config lists, leave setup, audit log
+    time/         weekly timesheet, clock, approval inbox
+    tasks/        checklist steps waiting on you
+    recruiting/   job postings and candidate pipelines
+    settings/     tenant, roles, config lists, leave, checklists, audit log
   api/            route handlers
 lib/
   auth/           session and credentials config
@@ -173,12 +185,21 @@ tests/            unit and e2e
 
 ## Status
 
-Phase 1 is complete. Phase 2 has started with leave management; time &
-attendance, recruitment/ATS and onboarding checklists are specced in
-`HR-Platform-Spec.md` but not built yet.
+Phases 1 and 2 are complete: core HR, leave, time & attendance, onboarding and
+offboarding checklists, and recruitment. Phase 3 onwards — performance reviews,
+learning, compensation, analytics — is specced in `HR-Platform-Spec.md` but not
+built.
 
-Leave currently assumes a Mon–Fri working week and a calendar leave year.
-Accrual is derived on read rather than written by a scheduled job, so balances
-are correct without anything having to run overnight — but there is no
-carry-over rollover job yet, and `carryOverMaxDays` is stored and not yet acted
-on.
+Known limits, all deliberate rather than overlooked:
+
+- **A Mon–Fri working week and a calendar leave year are hardcoded**
+  (`WEEKEND` in `lib/modules/leave/calendar.ts`). Configurable working weeks and
+  April-start leave years are a schema change on `Tenant`, not a rewrite.
+- **`carryOverMaxDays` is stored but not acted on.** There is no year-rollover
+  job; deciding forfeit-versus-carry rules is a policy call.
+- **Leave accrual is derived on read** rather than written by a scheduled job,
+  so balances are correct without anything running overnight.
+- **Interview outcomes are recorded but do not move the pipeline** on their own —
+  advancing a candidate stays a deliberate act.
+- **No candidate-facing careers page or portal.** Applications are entered by HR
+  or the hiring manager.
