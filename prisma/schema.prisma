@@ -43,6 +43,10 @@ model Tenant {
   checklistTemplates ChecklistTemplate[]
   checklists         EmployeeChecklist[]
   checklistTasks     ChecklistTask[]
+  jobPostings        JobPosting[]
+  candidates         Candidate[]
+  applications       Application[]
+  interviews         Interview[]
 
   /// Contracted full-time week. Anything beyond this on an approved timesheet is overtime.
   standardWeeklyHours Decimal @default(40) @db.Decimal(5, 2)
@@ -168,6 +172,9 @@ model Employee {
   checklists        EmployeeChecklist[]
   assignedTasks     ChecklistTask[]    @relation("TaskAssignee")
   completedTasks    ChecklistTask[]    @relation("TaskCompleter")
+  postingsOwned     JobPosting[]       @relation("HiringManager")
+  interviewsPanel   Interview[]        @relation("Interviewer")
+  hiredFrom         Application?       @relation("HiredEmployee")
   invites           Invite[]
 
   @@unique([tenantId, workEmail])
@@ -208,6 +215,7 @@ model Department {
   children Department[] @relation("DepartmentTree")
   lead     Employee?    @relation("DepartmentLead", fields: [leadId], references: [id], onDelete: SetNull)
   members  Employee[]   @relation("DepartmentMembers")
+  postings JobPosting[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -224,8 +232,9 @@ model EmploymentType {
   name     String // Full-time, Part-time, Contractor, Intern...
   isActive Boolean @default(true)
 
-  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant    Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   employees Employee[]
+  postings  JobPosting[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -593,4 +602,127 @@ model ChecklistTask {
   @@index([tenantId])
   @@index([checklistId])
   @@index([assigneeId, completedAt])
+}
+
+// ---------------------------------------------------------------------------
+// Recruitment / ATS (Phase 2)
+//
+// A Candidate is a person outside the company; an Employee is one inside it.
+// They are deliberately separate tables — a candidate has no login, no manager
+// and no leave — and the only bridge between them is hiring an Application,
+// which creates the Employee and records the link.
+// ---------------------------------------------------------------------------
+
+enum PostingStatus {
+  DRAFT
+  OPEN
+  ON_HOLD
+  CLOSED
+}
+
+/// Where an application has reached. Ordered as the pipeline is displayed.
+enum ApplicationStage {
+  APPLIED
+  SCREENING
+  INTERVIEW
+  OFFER
+  HIRED
+  REJECTED
+}
+
+enum InterviewOutcome {
+  PENDING
+  ADVANCE
+  REJECT
+}
+
+model JobPosting {
+  id               String        @id @default(cuid())
+  tenantId         String
+  title            String
+  departmentId     String?
+  hiringManagerId  String?
+  location         String?
+  employmentTypeId String?
+  description      String?
+  openings         Int           @default(1)
+  status           PostingStatus @default(DRAFT)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  department     Department?     @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  hiringManager  Employee?       @relation("HiringManager", fields: [hiringManagerId], references: [id], onDelete: SetNull)
+  employmentType EmploymentType? @relation(fields: [employmentTypeId], references: [id], onDelete: SetNull)
+  applications   Application[]
+
+  @@index([tenantId, status])
+  @@index([hiringManagerId])
+}
+
+model Candidate {
+  id        String   @id @default(cuid())
+  tenantId  String
+  firstName String
+  lastName  String
+  email     String
+  phone     String?
+  /// Where they came from — referral, job board, direct.
+  source    String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  applications Application[]
+
+  // One record per person per tenant; they may apply to several roles.
+  @@unique([tenantId, email])
+  @@index([tenantId])
+}
+
+model Application {
+  id          String           @id @default(cuid())
+  tenantId    String
+  candidateId String
+  postingId   String
+  stage       ApplicationStage @default(APPLIED)
+  /// Set when the stage becomes REJECTED.
+  rejectedReason String?
+  /// The Employee created when this application was hired.
+  hiredEmployeeId String?       @unique
+  appliedAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  tenant        Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  candidate     Candidate   @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  posting       JobPosting  @relation(fields: [postingId], references: [id], onDelete: Cascade)
+  hiredEmployee Employee?   @relation("HiredEmployee", fields: [hiredEmployeeId], references: [id], onDelete: SetNull)
+  interviews    Interview[]
+
+  // The same person cannot be in the pipeline for one role twice.
+  @@unique([candidateId, postingId])
+  @@index([tenantId, stage])
+  @@index([postingId, stage])
+}
+
+model Interview {
+  id            String           @id @default(cuid())
+  tenantId      String
+  applicationId String
+  interviewerId String?
+  scheduledAt   DateTime
+  minutes       Int              @default(60)
+  stageName     String? // "Phone screen", "Technical"...
+  outcome       InterviewOutcome @default(PENDING)
+  notes         String?
+  createdAt     DateTime         @default(now())
+
+  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  interviewer Employee?   @relation("Interviewer", fields: [interviewerId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, scheduledAt])
+  @@index([applicationId])
+  @@index([interviewerId, scheduledAt])
 }
