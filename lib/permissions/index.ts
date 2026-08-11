@@ -50,7 +50,9 @@ export type Permission =
   | "leave:configure"
   | "time:track"
   | "time:manage"
-  | "checklist:manage";
+  | "checklist:manage"
+  | "recruiting:read"
+  | "recruiting:manage";
 
 const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   SUPER_ADMIN: [
@@ -68,6 +70,8 @@ const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "time:track",
     "time:manage",
     "checklist:manage",
+    "recruiting:read",
+    "recruiting:manage",
   ],
   HR_ADMIN: [
     "employee:create",
@@ -84,8 +88,11 @@ const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "time:track",
     "time:manage",
     "checklist:manage",
+    "recruiting:read",
+    "recruiting:manage",
   ],
-  MANAGER: ["directory:read", "leave:request", "time:track"],
+  // A manager sees recruitment, but only the postings they are hiring for.
+  MANAGER: ["directory:read", "leave:request", "time:track", "recruiting:read"],
   EMPLOYEE: ["directory:read", "leave:request", "time:track"],
 };
 
@@ -430,6 +437,70 @@ export function assertCanCompleteTask(actor: Actor, target: ChecklistTaskTarget)
 export function assertCanReopenTask(actor: Actor, target: ChecklistTaskTarget): void {
   if (actor.tenantId !== target.tenantId) throw new ForbiddenError();
   assertCan(actor, "checklist:manage");
+}
+
+// --- recruitment -----------------------------------------------------------
+
+export type ApplicationStageValue = "APPLIED" | "SCREENING" | "INTERVIEW" | "OFFER" | "HIRED" | "REJECTED";
+
+/** The order stages are displayed and advanced through. */
+export const APPLICATION_STAGES = ["APPLIED", "SCREENING", "INTERVIEW", "OFFER", "HIRED"] as const;
+
+/** A posting, relative to the actor. */
+export interface PostingTarget {
+  tenantId: string;
+  /** True when the actor is the posting's hiring manager. */
+  isHiringManager: boolean;
+}
+
+/**
+ * Candidate data is commercially and personally sensitive, so it is not
+ * directory-visible at all. HR sees every posting; a manager sees only the ones
+ * they are hiring for.
+ */
+export function canViewPosting(actor: Actor, target: PostingTarget): boolean {
+  if (actor.tenantId !== target.tenantId) return false;
+  if (isAdmin(actor.role)) return true;
+  return can(actor, "recruiting:read") && target.isHiringManager;
+}
+
+export function assertCanViewPosting(actor: Actor, target: PostingTarget): void {
+  if (!canViewPosting(actor, target)) throw new ForbiddenError();
+}
+
+/**
+ * Moving someone through the pipeline. A hiring manager runs their own process;
+ * only HR may record the final hire, because hiring creates an employee record
+ * and everything that hangs off it.
+ */
+export function canMoveApplication(actor: Actor, target: PostingTarget, toStage: ApplicationStageValue): boolean {
+  if (!canViewPosting(actor, target)) return false;
+  if (toStage === "HIRED") return isAdmin(actor.role);
+  return isAdmin(actor.role) || target.isHiringManager;
+}
+
+export function assertCanMoveApplication(actor: Actor, target: PostingTarget, toStage: ApplicationStageValue): void {
+  if (!canMoveApplication(actor, target, toStage)) throw new ForbiddenError();
+}
+
+/** Creating, editing and closing postings is an HR act. */
+export function assertCanManagePostings(actor: Actor): void {
+  assertCan(actor, "recruiting:manage");
+}
+
+/**
+ * Whether a stage transition makes sense at all, independent of who is asking.
+ * HIRED and REJECTED are terminal — reopening is a new application.
+ */
+export function isValidStageTransition(from: ApplicationStageValue, to: ApplicationStageValue): boolean {
+  if (from === to) return false;
+  if (from === "HIRED" || from === "REJECTED") return false;
+  // Anything live may be rejected outright.
+  if (to === "REJECTED") return true;
+  if (to === "APPLIED") return false;
+  // Otherwise move within the ordered pipeline, forwards or back.
+  const order = APPLICATION_STAGES as readonly string[];
+  return order.includes(from) && order.includes(to);
 }
 
 /**
