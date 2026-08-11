@@ -17,7 +17,9 @@ import { assertCan, assertSameTenant, type Actor } from "@/lib/permissions";
 export async function getTenant(actor: Actor) {
   const tenant = await prisma.tenant.findUnique({ where: { id: actor.tenantId } });
   if (!tenant) throw new NotFoundError("Tenant not found.");
-  return tenant;
+  // Decimal columns cannot cross into a client component, so they leave the
+  // service as plain numbers.
+  return { ...tenant, standardWeeklyHours: Number(tenant.standardWeeklyHours) };
 }
 
 export async function updateTenant(actor: Actor, input: TenantProfileInput) {

@@ -8,7 +8,7 @@ import { Alert, Button, Card, CardHeader, Field, Input } from "@/components/ui";
 export function TenantForm({
   tenant,
 }: {
-  tenant: { name: string; countryCode: string; timezone: string; currency: string };
+  tenant: { name: string; countryCode: string; timezone: string; currency: string; standardWeeklyHours: number };
 }) {
   const router = useRouter();
   const [status, setStatus] = useState<{ tone: "success" | "danger"; message: string } | null>(null);
@@ -55,6 +55,22 @@ export function TenantForm({
         </Field>
         <Field label="Currency" htmlFor="currency" hint="Three letters, e.g. GBP.">
           <Input id="currency" name="currency" defaultValue={tenant.currency} maxLength={3} required />
+        </Field>
+        <Field
+          label="Standard weekly hours"
+          htmlFor="standardWeeklyHours"
+          hint="A full-time week. Timesheet hours beyond this count as overtime."
+        >
+          <Input
+            id="standardWeeklyHours"
+            name="standardWeeklyHours"
+            type="number"
+            min={1}
+            max={80}
+            step={0.5}
+            defaultValue={tenant.standardWeeklyHours}
+            required
+          />
         </Field>
 
         <div className="sm:col-span-2">

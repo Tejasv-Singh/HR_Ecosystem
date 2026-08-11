@@ -6,6 +6,8 @@ export const tenantProfileSchema = z.object({
   countryCode: z.string().trim().length(2, "Use a two-letter country code.").toUpperCase(),
   timezone: requiredText(64),
   currency: z.string().trim().length(3, "Use a three-letter currency code.").toUpperCase(),
+  /** Contracted full-time week. Drives expected hours and overtime on timesheets. */
+  standardWeeklyHours: z.coerce.number().min(1, "Must be at least an hour.").max(80, "That is more than a week."),
 });
 
 export const employmentTypeSchema = z.object({
