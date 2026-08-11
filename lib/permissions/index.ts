@@ -47,7 +47,9 @@ export type Permission =
   | "directory:read"
   | "leave:request"
   | "leave:manage"
-  | "leave:configure";
+  | "leave:configure"
+  | "time:track"
+  | "time:manage";
 
 const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   SUPER_ADMIN: [
@@ -62,6 +64,8 @@ const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "leave:request",
     "leave:manage",
     "leave:configure",
+    "time:track",
+    "time:manage",
   ],
   HR_ADMIN: [
     "employee:create",
@@ -75,9 +79,11 @@ const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "leave:request",
     "leave:manage",
     "leave:configure",
+    "time:track",
+    "time:manage",
   ],
-  MANAGER: ["directory:read", "leave:request"],
-  EMPLOYEE: ["directory:read", "leave:request"],
+  MANAGER: ["directory:read", "leave:request", "time:track"],
+  EMPLOYEE: ["directory:read", "leave:request", "time:track"],
 };
 
 /** How much of an employee record the actor may see. */
@@ -292,6 +298,83 @@ export function assertCanCancelLeave(actor: Actor, target: LeaveRequestTarget): 
 export function assertCanAdjustBalance(actor: Actor, target: EmployeeTarget): void {
   if (actor.tenantId !== target.tenantId) throw new ForbiddenError();
   assertCan(actor, "leave:manage");
+}
+
+// --- time & attendance -----------------------------------------------------
+
+export type TimesheetStatusValue = "OPEN" | "SUBMITTED" | "APPROVED" | "REJECTED";
+
+export interface TimesheetTarget {
+  tenantId: string;
+  employee: EmployeeTarget;
+  status: TimesheetStatusValue;
+}
+
+/** Hours are personnel data: same visibility rule as leave and documents. */
+export function canViewTimesheet(actor: Actor, target: EmployeeTarget): boolean {
+  return employeeViewLevel(actor, target) === "full";
+}
+
+export function assertCanViewTimesheet(actor: Actor, target: EmployeeTarget): void {
+  if (!canViewTimesheet(actor, target)) throw new ForbiddenError();
+}
+
+/**
+ * Recording hours is self-service. HR may also record on someone's behalf, for
+ * the person who forgot to clock in on Friday; a manager may not, because a
+ * manager who could write hours could also approve the week they wrote.
+ */
+export function canRecordTimeFor(actor: Actor, target: EmployeeTarget): boolean {
+  if (actor.tenantId !== target.tenantId) return false;
+  if (target.isSelf) return true;
+  return isAdmin(actor.role);
+}
+
+export function assertCanRecordTimeFor(actor: Actor, target: EmployeeTarget): void {
+  if (!canRecordTimeFor(actor, target)) throw new ForbiddenError();
+}
+
+/**
+ * A week stops being editable once it has been submitted, and only reopens if
+ * it is sent back. Approved weeks are closed to everyone — correcting them is a
+ * payroll adjustment, not an edit.
+ */
+export function canEditTimeEntry(actor: Actor, target: TimesheetTarget): boolean {
+  if (!canRecordTimeFor(actor, target.employee)) return false;
+  if (target.status === "APPROVED") return false;
+  // A submitted week is locked for the owner but HR may still correct it.
+  if (target.status === "SUBMITTED") return isAdmin(actor.role);
+  return true;
+}
+
+export function assertCanEditTimeEntry(actor: Actor, target: TimesheetTarget): void {
+  if (!canEditTimeEntry(actor, target)) throw new ForbiddenError();
+}
+
+/** Only the owner submits their own week — or HR on their behalf. */
+export function canSubmitTimesheet(actor: Actor, target: TimesheetTarget): boolean {
+  if (!canRecordTimeFor(actor, target.employee)) return false;
+  return target.status === "OPEN" || target.status === "REJECTED";
+}
+
+export function assertCanSubmitTimesheet(actor: Actor, target: TimesheetTarget): void {
+  if (!canSubmitTimesheet(actor, target)) throw new ForbiddenError();
+}
+
+/**
+ * Approval mirrors leave: manager for their downline, HR for anyone, nobody for
+ * themselves — and only on a week that has actually been submitted.
+ */
+export function canDecideTimesheet(actor: Actor, target: TimesheetTarget): boolean {
+  if (actor.tenantId !== target.tenantId || actor.tenantId !== target.employee.tenantId) return false;
+  if (target.status !== "SUBMITTED") return false;
+  if (target.employee.isSelf) return false;
+  if (isAdmin(actor.role)) return true;
+  return actor.role === "MANAGER" && target.employee.isInDownline;
+}
+
+export function assertCanDecideTimesheet(actor: Actor, target: TimesheetTarget): void {
+  if (!canDecideTimesheet(actor, target)) throw new ForbiddenError();
 }
 
 /**
